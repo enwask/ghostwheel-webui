@@ -442,9 +442,21 @@ OLLAMA_BASE_URLS = os.environ.get("OLLAMA_BASE_URLS", "")
 OLLAMA_BASE_URLS = OLLAMA_BASE_URLS if OLLAMA_BASE_URLS != "" else OLLAMA_BASE_URL
 
 OLLAMA_BASE_URLS = [url.strip() for url in OLLAMA_BASE_URLS.split(";")]
-OLLAMA_BASE_URLS = PersistentConfig(
-    "OLLAMA_BASE_URLS", "ollama.base_urls", OLLAMA_BASE_URLS
+OLLAMA_BASE_URLS = PersistentConfig("OLLAMA_BASE_URLS", "ollama.base_urls", OLLAMA_BASE_URLS)
+
+####################################
+# GHOSTWHEEL
+####################################
+
+# If enabled, ghostwheel will replace the Ollama backend
+ENABLE_GHOSTWHEEL_API = PersistentConfig(
+    "ENABLE_GHOSTWHEEL_API",
+    "ghostwheel.enable",
+    os.environ.get("ENABLE_GHOSTWHEEL_API", "True").lower() == "true",
 )
+GHOSTWHEEL_BASE_URL = os.environ.get("GHOSTWHEEL_BASE_URL", "https://ese-timewarp.ese.ic.ac.uk")
+GHOSTWHEEL_API_KEY = os.environ.get("GHOSTWHEEL_API_KEY", "")
+
 
 ####################################
 # OPENAI_API

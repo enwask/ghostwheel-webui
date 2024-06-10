@@ -85,6 +85,9 @@ class ERROR_MESSAGES(str, Enum):
         lambda err="": f"{err if err else 'Oops! Something went wrong while searching the web.'}"
     )
 
-    OLLAMA_API_DISABLED = (
-        "The Ollama API is disabled. Please enable it to use this feature."
+    OLLAMA_API_DISABLED = "The Ollama API is disabled. Please enable it to use this feature."
+
+    GHOSTWHEEL_NOT_ALLOWED = (
+        "This operation is not allowed when ghostwheel is used as the Ollama backend. "
+        "Disable ghostwheel (and provide your own Ollama backend) to use this feature."
     )

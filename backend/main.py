@@ -132,6 +132,7 @@ app.state.config = AppConfig()
 
 app.state.config.ENABLE_OPENAI_API = ENABLE_OPENAI_API
 app.state.config.ENABLE_OLLAMA_API = ENABLE_OLLAMA_API
+app.state.config.ENABLE_GHOSTWHEEL_API = ENABLE_GHOSTWHEEL_API
 
 app.state.config.ENABLE_MODEL_FILTER = ENABLE_MODEL_FILTER
 app.state.config.MODEL_FILTER_LIST = MODEL_FILTER_LIST
