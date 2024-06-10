@@ -283,7 +283,7 @@
 							} else if (e.target.value === 'openai') {
 								embeddingModel = 'text-embedding-3-small';
 							} else if (e.target.value === '') {
-								embeddingModel = 'sentence-transformers/all-MiniLM-L6-v2';
+								embeddingModel = 'nomic-embed-text:137m-v1.5-fp16';
 							}
 						}}
 					>
