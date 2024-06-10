@@ -49,6 +49,9 @@ from config import (
     ENABLE_MODEL_FILTER,
     MODEL_FILTER_LIST,
     UPLOAD_DIR,
+    ENABLE_GHOSTWHEEL_API,
+    GHOSTWHEEL_BASE_URL,
+    GHOSTWHEEL_API_KEY,
     AppConfig,
 )
 from utils.misc import calculate_sha256
@@ -72,6 +75,7 @@ app.state.config.MODEL_FILTER_LIST = MODEL_FILTER_LIST
 
 app.state.config.ENABLE_OLLAMA_API = ENABLE_OLLAMA_API
 app.state.config.OLLAMA_BASE_URLS = OLLAMA_BASE_URLS
+app.state.config.ENABLE_GHOSTWHEEL_API = ENABLE_GHOSTWHEEL_API
 app.state.MODELS = {}
 
 
@@ -114,6 +118,8 @@ async def update_config(form_data: OllamaConfigForm, user=Depends(get_admin_user
 
 @app.get("/urls")
 async def get_ollama_api_urls(user=Depends(get_admin_user)):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        return {"OLLAMA_BASE_URLS": [GHOSTWHEEL_BASE_URL]}
     return {"OLLAMA_BASE_URLS": app.state.config.OLLAMA_BASE_URLS}
 
 
@@ -123,6 +129,12 @@ class UrlUpdateForm(BaseModel):
 
 @app.post("/urls/update")
 async def update_ollama_api_url(form_data: UrlUpdateForm, user=Depends(get_admin_user)):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
+
     app.state.config.OLLAMA_BASE_URLS = form_data.urls
 
     log.info(f"app.state.config.OLLAMA_BASE_URLS: {app.state.config.OLLAMA_BASE_URLS}")
@@ -133,7 +145,15 @@ async def fetch_url(url):
     timeout = aiohttp.ClientTimeout(total=5)
     try:
         async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-            async with session.get(url) as response:
+            headers = (
+                {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': GHOSTWHEEL_API_KEY,
+                }
+                if app.state.config.ENABLE_GHOSTWHEEL_API
+                else {}
+            )
+            async with session.get(url, headers=headers) as response:
                 return await response.json()
     except Exception as e:
         # Handle connection error here
@@ -155,7 +175,15 @@ async def post_streaming_url(url: str, payload: str):
     r = None
     try:
         session = aiohttp.ClientSession(trust_env=True)
-        r = await session.post(url, data=payload)
+        headers = (
+            {
+                'Content-Type': 'application/json',
+                'X-API-Key': GHOSTWHEEL_API_KEY,
+            }
+            if app.state.config.ENABLE_GHOSTWHEEL_API
+            else {}
+        )
+        r = await session.post(url, data=payload, headers=headers)
         r.raise_for_status()
 
         return StreamingResponse(
@@ -203,18 +231,22 @@ async def get_all_models():
     log.info("get_all_models()")
 
     if app.state.config.ENABLE_OLLAMA_API:
-        tasks = [
-            fetch_url(f"{url}/api/tags") for url in app.state.config.OLLAMA_BASE_URLS
-        ]
-        responses = await asyncio.gather(*tasks)
-
-        models = {
-            "models": merge_models_lists(
-                map(
-                    lambda response: response["models"] if response else None, responses
+        if app.state.config.ENABLE_GHOSTWHEEL_API:
+            # Call the merge function so 'urls' keys are present per model
+            models = {
+                'models': merge_models_lists(
+                    [(await fetch_url(f"{GHOSTWHEEL_BASE_URL}/api/tags"))['models']]
                 )
-            )
-        }
+            }
+        else:
+            tasks = [fetch_url(f"{url}/api/tags") for url in app.state.config.OLLAMA_BASE_URLS]
+            responses = await asyncio.gather(*tasks)
+
+            models = {
+                "models": merge_models_lists(
+                    map(lambda response: response["models"] if response else None, responses)
+                )
+            }
 
     else:
         models = {"models": []}
@@ -244,7 +276,11 @@ async def get_ollama_tags(
                 return models
         return models
     else:
-        url = app.state.config.OLLAMA_BASE_URLS[url_idx]
+        url = (
+            GHOSTWHEEL_BASE_URL
+            if app.state.config.ENABLE_GHOSTWHEEL_API
+            else app.state.config.OLLAMA_BASE_URLS[url_idx]
+        )
 
         r = None
         try:
@@ -273,6 +309,12 @@ async def get_ollama_tags(
 @app.get("/api/version/{url_idx}")
 async def get_ollama_versions(url_idx: Optional[int] = None):
     if app.state.config.ENABLE_OLLAMA_API:
+        if app.state.config.ENABLE_GHOSTWHEEL_API:
+            raise HTTPException(
+                status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+                detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+            )
+
         if url_idx == None:
 
             # returns lowest version
@@ -334,6 +376,12 @@ class ModelNameForm(BaseModel):
 async def pull_model(
     form_data: ModelNameForm, url_idx: int = 0, user=Depends(get_admin_user)
 ):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
+
     url = app.state.config.OLLAMA_BASE_URLS[url_idx]
     log.info(f"url: {url}")
 
@@ -358,6 +406,12 @@ async def push_model(
     url_idx: Optional[int] = None,
     user=Depends(get_admin_user),
 ):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
+
     if url_idx == None:
         if form_data.name in app.state.MODELS:
             url_idx = app.state.MODELS[form_data.name]["urls"][0]
@@ -387,6 +441,12 @@ class CreateModelForm(BaseModel):
 async def create_model(
     form_data: CreateModelForm, url_idx: int = 0, user=Depends(get_admin_user)
 ):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
+
     log.debug(f"form_data: {form_data}")
     url = app.state.config.OLLAMA_BASE_URLS[url_idx]
     log.info(f"url: {url}")
@@ -408,6 +468,12 @@ async def copy_model(
     url_idx: Optional[int] = None,
     user=Depends(get_admin_user),
 ):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
+
     if url_idx == None:
         if form_data.source in app.state.MODELS:
             url_idx = app.state.MODELS[form_data.source]["urls"][0]
@@ -455,6 +521,12 @@ async def delete_model(
     url_idx: Optional[int] = None,
     user=Depends(get_admin_user),
 ):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
+
     if url_idx == None:
         if form_data.name in app.state.MODELS:
             url_idx = app.state.MODELS[form_data.name]["urls"][0]
@@ -497,6 +569,12 @@ async def delete_model(
 
 @app.post("/api/show")
 async def show_model_info(form_data: ModelNameForm, user=Depends(get_verified_user)):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
+
     if form_data.name not in app.state.MODELS:
         raise HTTPException(
             status_code=400,
@@ -561,14 +639,27 @@ async def generate_embeddings(
                 detail=ERROR_MESSAGES.MODEL_NOT_FOUND(form_data.model),
             )
 
-    url = app.state.config.OLLAMA_BASE_URLS[url_idx]
+    url = (
+        GHOSTWHEEL_BASE_URL
+        if app.state.config.ENABLE_GHOSTWHEEL_API
+        else app.state.config.OLLAMA_BASE_URLS[url_idx]
+    )
     log.info(f"url: {url}")
 
     try:
+        headers = (
+            {
+                'Content-Type': 'application/json',
+                'X-API-Key': GHOSTWHEEL_API_KEY,
+            }
+            if app.state.config.ENABLE_GHOSTWHEEL_API
+            else {}
+        )
         r = requests.request(
             method="POST",
             url=f"{url}/api/embeddings",
             data=form_data.model_dump_json(exclude_none=True).encode(),
+            headers=headers,
         )
         r.raise_for_status()
 
@@ -611,14 +702,27 @@ def generate_ollama_embeddings(
                 detail=ERROR_MESSAGES.MODEL_NOT_FOUND(form_data.model),
             )
 
-    url = app.state.config.OLLAMA_BASE_URLS[url_idx]
+    url = (
+        GHOSTWHEEL_BASE_URL
+        if app.state.config.ENABLE_GHOSTWHEEL_API
+        else app.state.config.OLLAMA_BASE_URLS[url_idx]
+    )
     log.info(f"url: {url}")
 
     try:
+        headers = (
+            {
+                'Content-Type': 'application/json',
+                'X-API-Key': GHOSTWHEEL_API_KEY,
+            }
+            if app.state.config.ENABLE_GHOSTWHEEL_API
+            else {}
+        )
         r = requests.request(
             method="POST",
             url=f"{url}/api/embeddings",
             data=form_data.model_dump_json(exclude_none=True).encode(),
+            headers=headers,
         )
         r.raise_for_status()
 
@@ -680,7 +784,11 @@ async def generate_completion(
                 detail=ERROR_MESSAGES.MODEL_NOT_FOUND(form_data.model),
             )
 
-    url = app.state.config.OLLAMA_BASE_URLS[url_idx]
+    url = (
+        GHOSTWHEEL_BASE_URL
+        if app.state.config.ENABLE_GHOSTWHEEL_API
+        else app.state.config.OLLAMA_BASE_URLS[url_idx]
+    )
     log.info(f"url: {url}")
 
     return await post_streaming_url(
@@ -837,7 +945,11 @@ async def generate_chat_completion(
                 detail=ERROR_MESSAGES.MODEL_NOT_FOUND(form_data.model),
             )
 
-    url = app.state.config.OLLAMA_BASE_URLS[url_idx]
+    url = (
+        GHOSTWHEEL_BASE_URL
+        if app.state.config.ENABLE_GHOSTWHEEL_API
+        else app.state.config.OLLAMA_BASE_URLS[url_idx]
+    )
     log.info(f"url: {url}")
 
     print(payload)
@@ -872,6 +984,11 @@ async def generate_openai_chat_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
 ):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
 
     payload = {
         **form_data.model_dump(exclude_none=True),
@@ -973,7 +1090,11 @@ async def get_openai_models(
         }
 
     else:
-        url = app.state.config.OLLAMA_BASE_URLS[url_idx]
+        url = (
+            GHOSTWHEEL_BASE_URL
+            if app.state.config.ENABLE_GHOSTWHEEL_API
+            else app.state.config.OLLAMA_BASE_URLS[url_idx]
+        )
         try:
             r = requests.request(method="GET", url=f"{url}/api/tags")
             r.raise_for_status()
@@ -1096,6 +1217,11 @@ async def download_model(
     form_data: UrlForm,
     url_idx: Optional[int] = None,
 ):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
 
     allowed_hosts = ["https://huggingface.co/", "https://github.com/"]
 
@@ -1124,6 +1250,12 @@ async def download_model(
 @app.post("/models/upload")
 @app.post("/models/upload/{url_idx}")
 def upload_model(file: UploadFile = File(...), url_idx: Optional[int] = None):
+    if app.state.config.ENABLE_GHOSTWHEEL_API:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+        )
+
     if url_idx == None:
         url_idx = 0
     ollama_url = app.state.config.OLLAMA_BASE_URLS[url_idx]
@@ -1236,6 +1368,11 @@ async def deprecated_proxy(
 
     if user.role in ["user", "admin"]:
         if path in ["pull", "delete", "push", "copy", "create"]:
+            if app.state.config.ENABLE_GHOSTWHEEL_API:
+                raise HTTPException(
+                    status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+                    detail=ERROR_MESSAGES.GHOSTWHEEL_NOT_ALLOWED,
+                )
             if user.role != "admin":
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
