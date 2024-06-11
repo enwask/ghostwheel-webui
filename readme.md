@@ -34,4 +34,4 @@ pip install -Ur requirements.txt
 bash start.sh
 ```
 
-Setup for running in Docker, or in another production environment, is left as an exercise for the reader.
+Setup for running in Docker, or in another production environment, is left as an exercise for the reader. It shouldn't differ too much from a standard setup for WebUI with a remote Ollama backend, besides using the relevant ghostwheel environment variables in `.env` (again, see [`.env.example`](https://github.com/enwask/ghostwheel-webui/blob/main/.env.example)).
